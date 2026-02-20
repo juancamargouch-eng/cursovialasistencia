@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+:root {
+  --primary: #0ea5e9;
+}
+
+@theme {
+  --color-primary-50: #f0f9ff;
+  --color-primary-100: #e0f2fe;
+  --color-primary-200: #bae6fd;
+  --color-primary-300: #7dd3fc;
+  --color-primary-400: #38bdf8;
+  --color-primary-500: #0ea5e9;
+  --color-primary-600: #0284c7;
+  --color-primary-700: #0369a1;
+  --color-primary-800: #075985;
+  --color-primary-900: #0c4a6e;
+  --color-primary-950: #082f49;
+}
+
+body {
+  @apply bg-slate-950 text-slate-900 font-sans;
+  overflow-x: hidden;
+}
+
+@layer utilities {
+  .road-perspective {
+    perspective: 1200px;
+    overflow: hidden;
+  }
+
+  .road-surface {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%) rotateX(65deg);
+    width: 300%;
+    height: 120%;
+    background: linear-gradient(to bottom, #1e293b 0%, #0f172a 100%);
+    border-left: 12px solid rgba(255, 255, 255, 0.05);
+    border-right: 12px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 150px rgba(0, 0, 0, 0.9) inset;
+  }
+
+  .road-lines {
+    position: absolute;
+    top: -100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 14px;
+    height: 200%;
+    background: repeating-linear-gradient(transparent 0,
+        transparent 120px,
+        rgba(255, 255, 255, 0.4) 120px,
+        rgba(255, 255, 255, 0.4) 240px);
+    animation: road-travel 1.2s linear infinite;
+  }
+
+  .glass {
+    @apply bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl;
+  }
+}
+
+@keyframes road-travel {
+  from {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  to {
+    transform: translateX(-50%) translateY(240px);
+  }
+}
+
+@keyframes vehicle-pass {
+  0% {
+    transform: translateY(120vh) scale(2) translateX(-50%);
+    opacity: 0;
+    filter: blur(5px);
+  }
+
+  5% {
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  90% {
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  100% {
+    transform: translateY(-30vh) scale(0.1) translateX(-50%);
+    opacity: 0;
+    filter: blur(10px);
+  }
+}
+
+@keyframes vehicle-sway {
+
+  0%,
+  100% {
+    margin-left: -15px;
+  }
+
+  50% {
+    margin-left: 15px;
+  }
+}
+
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0) rotate(2deg);
+  }
+
+  50% {
+    transform: translateY(-15px) rotate(-2deg);
+  }
+}
+
+@keyframes shine {
+  from {
+    transform: translateX(-100%) skewX(-15deg);
+  }
+
+  to {
+    transform: translateX(200%) skewX(-15deg);
+  }
+}
+
+.animate-vehicle {
+  animation: vehicle-pass 6s linear infinite, vehicle-sway 3s ease-in-out infinite;
+}
+
+.animate-vehicle-delayed {
+  animation: vehicle-pass 8s linear infinite 3s, vehicle-sway 4s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-shine {
+  animation: shine 3s infinite;
+}

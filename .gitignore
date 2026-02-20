@@ -1,0 +1,29 @@
+# Entornos y Secretos
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+venv/
+.venv/
+backend/server_log.txt
+backend/uploads/
+backend/cursovial.db
+*.db
+
+# Node / Frontend
+node_modules/
+dist/
+.DS_Store
+
+
+# Certificados locales
+backend/*.pem
+iniciar_red_local.bat
+promt maestro.txt
+.gemini/
