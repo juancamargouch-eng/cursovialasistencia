@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from database import Base
+from app.db.session import Base
 
 class User(Base):
     __tablename__ = "users"
@@ -26,9 +26,9 @@ class Integrante(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     dni = Column(String, index=True)
-    nombres = Column(String, nullable=False)
-    apellidos = Column(String, nullable=False)
-    id_asociacion = Column(Integer, ForeignKey("asociaciones.id"))
+    nombres = Column(String, nullable=False, index=True)
+    apellidos = Column(String, nullable=False, index=True)
+    id_asociacion = Column(Integer, ForeignKey("asociaciones.id"), index=True)
     tiene_foto = Column(Boolean, default=False)
     foto_url = Column(String, nullable=True)
     # Guardamos el face descriptor como un JSON (Array de 128 floats)

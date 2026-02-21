@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import List, Optional
-from jose import JWTError
 from pydantic import BaseModel
 
 class UserBase(BaseModel):
@@ -103,6 +102,12 @@ class CursoCreate(CursoBase):
 class CursoSchema(CursoBase):
     id: int
     fecha_registro: datetime
+
+    class Config:
+        from_attributes = True
+class PaginatedIntegrantes(BaseModel):
+    total: int
+    items: List[IntegranteSchema]
 
     class Config:
         from_attributes = True

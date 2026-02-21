@@ -2,7 +2,7 @@ import axios from 'axios';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import * as faceapi from 'face-api.js';
 import { RefreshCw, CheckCircle, XCircle, Search, UserPlus, Loader2, FlipHorizontal, ShieldCheck, Building, Camera } from 'lucide-react';
-import { getIntegrantes, registrarAsistencia, actualizarFaceDescriptor, getAsociaciones, crearIntegrante, subirFotoIndividual, API_URL } from '../services/api';
+import { getIntegrantes, registrarAsistencia, actualizarFaceDescriptor, getAsociaciones, crearIntegrante, subirFotoIndividual, getAuthenticatedFotoUrl, API_URL } from '../services/api';
 import type { Integrante, Asociacion } from '../types';
 
 const AttendanceControl = () => {
@@ -33,11 +33,25 @@ const AttendanceControl = () => {
     const [asocQuery, setAsocQuery] = useState('');
     const [isCreating, setIsCreating] = useState(false);
 
+    // Broadcast Channel para Vista Pública
+    const broadcastChannel = useRef<BroadcastChannel | null>(null);
+
+    useEffect(() => {
+        broadcastChannel.current = new BroadcastChannel('attendance_updates');
+        return () => broadcastChannel.current?.close();
+    }, []);
+
     const getTurnoActual = useCallback(() => {
         const hour = new Date().getHours();
         if (hour >= 6 && hour < 12) return 'MAÑANA';
         if (hour >= 12 && hour < 18) return 'TARDE';
         return 'NOCHE';
+    }, []);
+
+    const sendBroadcast = useCallback((type: 'FACE_RECOGNIZED' | 'SUCCESS' | 'ALREADY_MARKED' | 'RESET', payload?: { dni: string, nombres: string, apellidos: string, asociacion: string }) => {
+        if (broadcastChannel.current) {
+            broadcastChannel.current.postMessage({ type, payload });
+        }
     }, []);
 
     const handleAttendance = useCallback(async (id_integrante: number) => {
@@ -48,7 +62,16 @@ const AttendanceControl = () => {
                 turno: getTurnoActual()
             });
             setMessage({ text: 'Asistencia registrada correctamente.', type: 'success' });
-            setPendingIntegrante(null);
+
+            // Notificar éxito visual a vista pública inmediatamente
+            sendBroadcast('SUCCESS');
+
+            // Resetear después de un momento
+            setTimeout(() => {
+                sendBroadcast('RESET');
+                setPendingIntegrante(null);
+            }, 3000);
+
             setFoundIntegrante(null);
             setManualDni('');
             return true;
@@ -57,13 +80,17 @@ const AttendanceControl = () => {
             let msg = 'Error al registrar asistencia';
             if (axios.isAxiosError(error) && error.response?.data?.detail) {
                 msg = error.response.data.detail;
+                // Si el mensaje indica que ya marcó, notificar a la vista pública con sonido grave
+                if (msg.includes('YA MARCÓ')) {
+                    sendBroadcast('ALREADY_MARKED');
+                }
             }
             setMessage({ text: msg, type: 'error' });
             return false;
         } finally {
             setIsProcessingAttendance(false);
         }
-    }, [getTurnoActual]);
+    }, [getTurnoActual, sendBroadcast]);
 
     // Keyboard Shortcuts
     useEffect(() => {
@@ -73,6 +100,7 @@ const AttendanceControl = () => {
                     handleAttendance(pendingIntegrante.id);
                 } else if (e.key === 'Escape') {
                     setPendingIntegrante(null);
+                    sendBroadcast('RESET');
                 }
             } else if (showQuickRegister) {
                 if (e.key === 'Escape') {
@@ -84,16 +112,18 @@ const AttendanceControl = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [pendingIntegrante, isProcessingAttendance, showQuickRegister, handleAttendance]);
+    }, [pendingIntegrante, isProcessingAttendance, showQuickRegister, handleAttendance, sendBroadcast]);
+
+    // ... (fetchIntegrantes, loadModels, startVideo, etc.) ...
 
     const fetchIntegrantes = useCallback(async () => {
         try {
             const [intRes, asocRes] = await Promise.all([
-                getIntegrantes(),
+                getIntegrantes({ limit: 5000 }), // Cargamos a todos para el faceMatcher
                 getAsociaciones()
             ]);
 
-            const data: Integrante[] = intRes.data;
+            const data: Integrante[] = intRes.data.items || intRes.data;
             setIntegrantes(data);
             setAsociaciones(asocRes.data);
 
@@ -202,6 +232,15 @@ const AttendanceControl = () => {
                                 const inte = integrantes.find(i => i.dni === result.label);
                                 if (inte && !pendingIntegrante) {
                                     setPendingIntegrante(inte);
+
+                                    // Notificar a vista pública
+                                    sendBroadcast('FACE_RECOGNIZED', {
+                                        dni: inte.dni,
+                                        nombres: inte.nombres,
+                                        apellidos: inte.apellidos,
+                                        asociacion: asociaciones.find(a => a.id === inte.id_asociacion)?.nombre || 'Independiente'
+                                    });
+
                                     setUnknownCount(0); // Reset count on success
                                     setMessage(null);
                                 }
@@ -221,7 +260,7 @@ const AttendanceControl = () => {
             }, 700);
         }
         return () => clearInterval(interval);
-    }, [modelsLoaded, faceMatcher, integrantes, pendingIntegrante, showQuickRegister]);
+    }, [modelsLoaded, faceMatcher, integrantes, asociaciones, pendingIntegrante, showQuickRegister, sendBroadcast]);
 
     const handleQuickRegister = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -283,14 +322,13 @@ const AttendanceControl = () => {
             }
 
             // 3. Crear integrante con valores por defecto si no se llenaron
-            // Usamos la primera asociación disponible como default si no hay una seleccionada
-            const defaultAsocId = asociaciones.length > 0 ? asociaciones[0].id : 1;
+            // Si id_asociacion es 0, el backend buscará emparejar con un registro existente.
 
             await crearIntegrante({
                 dni: quickForm.dni,
                 nombres: quickForm.nombres || 'POR COMPLETAR',
                 apellidos: quickForm.apellidos || 'POR COMPLETAR',
-                id_asociacion: quickForm.id_asociacion || defaultAsocId,
+                id_asociacion: quickForm.id_asociacion, // Enviamos 0 si no se seleccionó nada
                 tiene_foto: true,
                 face_descriptor: descriptor
             });
@@ -398,6 +436,14 @@ const AttendanceControl = () => {
                                 <span className="text-xs font-bold uppercase tracking-tighter">Cámara en red local - {getTurnoActual()}</span>
                             </div>
                             <div className="flex items-center space-x-2">
+                                <button
+                                    onClick={() => window.open('/public-check-in', '_blank', 'width=1000,height=800')}
+                                    className="bg-primary-50 hover:bg-primary-100 text-primary-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-2 border border-primary-100 transition-colors"
+                                    title="Abrir pantalla para el conductor"
+                                >
+                                    <Camera size={14} />
+                                    <span>Vista Pública</span>
+                                </button>
                                 <button onClick={toggleCamera} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-2">
                                     <FlipHorizontal size={14} />
                                     <span>Girar</span>
@@ -427,9 +473,13 @@ const AttendanceControl = () => {
                                     className="w-full pl-4 pr-12 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
                                 />
                                 <button onClick={() => {
-                                    const inte = integrantes.find(i => i.dni === manualDni);
+                                    const searchLower = manualDni.trim().toLowerCase();
+                                    const inte = integrantes.find(i =>
+                                        i.dni === searchLower ||
+                                        i.id.toString() === searchLower
+                                    );
                                     if (inte) setFoundIntegrante(inte);
-                                    else setMessage({ text: 'DNI no encontrado', type: 'error' });
+                                    else setMessage({ text: 'No se encontró integrante (DNI o ID)', type: 'error' });
                                 }} className="absolute right-2 top-1.5 p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg">
                                     <Search size={20} />
                                 </button>
@@ -440,7 +490,7 @@ const AttendanceControl = () => {
                                     <div className="flex items-center space-x-3">
                                         <div className="w-12 h-12 rounded-full overflow-hidden border border-slate-200">
                                             <img
-                                                src={`${API_URL}/fotos/${foundIntegrante.dni}.jpg`}
+                                                src={getAuthenticatedFotoUrl(foundIntegrante.dni)}
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => { (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(foundIntegrante.nombres); }}
                                             />
@@ -497,7 +547,7 @@ const AttendanceControl = () => {
                             <div className="relative inline-block mx-auto">
                                 <div className="w-48 h-48 rounded-[2.5rem] border-8 border-slate-50 overflow-hidden shadow-2xl transform rotate-2">
                                     <img
-                                        src={`${API_URL}/fotos/${pendingIntegrante.dni}.jpg`}
+                                        src={getAuthenticatedFotoUrl(pendingIntegrante.dni)}
                                         className="w-full h-full object-cover -rotate-2 scale-110"
                                         onError={(e) => { (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(`${pendingIntegrante.nombres} ${pendingIntegrante.apellidos}`) + '&background=random'; }}
                                     />

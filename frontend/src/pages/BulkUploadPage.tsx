@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FileUp, Loader2, CheckCircle, XCircle, AlertCircle, Building, Users, Image as ImageIcon, Archive, Cpu, Play } from 'lucide-react';
 import * as faceapi from 'face-api.js';
-import { bulkUpload, bulkPhotosUpload, getIntegrantes, actualizarFaceDescriptor, API_URL } from '../services/api';
+import { bulkUpload, bulkPhotosUpload, getIntegrantes, actualizarFaceDescriptor, getAuthenticatedFotoUrl } from '../services/api';
 import type { Integrante } from '../types';
 
 interface AxiosError {
@@ -56,8 +56,9 @@ const BulkUploadPage = () => {
 
     const fetchPendingIntegrantes = useCallback(async () => {
         try {
-            const response = await getIntegrantes();
-            const pending = response.data.filter((i: Integrante) => i.tiene_foto && !i.face_descriptor);
+            // Aumentamos el límite para procesar todos los pendientes de una sola vez
+            const response = await getIntegrantes({ limit: 1000 });
+            const pending = response.data.items.filter((i: Integrante) => i.tiene_foto && !i.face_descriptor);
             setIntegrantesSinDescriptor(pending);
         } catch (err) {
             console.error('Error loading integrantes:', err);
@@ -126,7 +127,7 @@ const BulkUploadPage = () => {
             try {
                 // 1. Cargar imagen desde el servidor
                 // Usamos el DNI para la foto física ya que es compartida
-                const img = await faceapi.fetchImage(`${API_URL}/fotos/${inte.dni}.jpg`);
+                const img = await faceapi.fetchImage(getAuthenticatedFotoUrl(inte.dni));
 
                 // 2. Detectar rostro y descriptor
                 const detection = await faceapi.detectSingleFace(img)

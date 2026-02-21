@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useDeferredValue, memo } from 'react';
-import { Calendar, FileText, CheckCircle, XCircle, Plus, Loader2 } from 'lucide-react';
-import { getCursos, crearCurso, getReporteAsistencia, API_URL } from '../services/api';
+import { Calendar, FileText, CheckCircle, XCircle, Plus, Loader2, Download, Table } from 'lucide-react';
+import { getCursos, crearCurso, getReporteAsistencia, getAuthenticatedFotoUrl } from '../services/api';
+import * as XLSX from 'xlsx';
 
 interface Curso {
     id: number;
@@ -8,14 +9,21 @@ interface Curso {
     fecha: string;
 }
 
+interface AsistenciaDetalle {
+    turno: string;
+    hora: string;
+}
+
 interface ReporteItem {
     id: number;
     dni: string;
     nombres: string;
     apellidos: string;
+    id_asociacion: number;
     empresa: string;
     tiene_foto: boolean;
     asistio: boolean;
+    detalles_asistencia: AsistenciaDetalle[];
 }
 
 const ReportRow = memo(({ item }: { item: ReporteItem }) => {
@@ -25,7 +33,7 @@ const ReportRow = memo(({ item }: { item: ReporteItem }) => {
                 <div className="flex items-center space-x-3">
                     <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 shrink-0">
                         <img
-                            src={item.tiene_foto ? `${API_URL}/fotos/${item.dni}.jpg` : `https://ui-avatars.com/api/?name=${item.nombres}&background=random`}
+                            src={item.tiene_foto ? getAuthenticatedFotoUrl(item.dni) : `https://ui-avatars.com/api/?name=${item.nombres}&background=random`}
                             className="w-full h-full object-cover"
                             alt=""
                         />
@@ -66,6 +74,7 @@ const CoursesPage = () => {
     const [reporte, setReporte] = useState<ReporteItem[]>([]);
     const [loadingReport, setLoadingReport] = useState(false);
     const [filterBy, setFilterBy] = useState<'all' | 'present' | 'absent'>('all');
+    const [selectedTurno, setSelectedTurno] = useState<string>('todos');
 
     // Defer filtering to keep UI responsive
     const deferredFilterBy = useDeferredValue(filterBy);
@@ -79,11 +88,11 @@ const CoursesPage = () => {
         if (!selectedDate || selectedDate.length < 10) return;
 
         const timeoutId = setTimeout(() => {
-            fetchReporte(selectedDate);
+            fetchReporte(selectedDate, selectedTurno);
         }, 500); // 500ms de espera
 
         return () => clearTimeout(timeoutId);
-    }, [selectedDate]);
+    }, [selectedDate, selectedTurno]);
 
     const fetchCursos = async () => {
         try {
@@ -96,10 +105,11 @@ const CoursesPage = () => {
         }
     };
 
-    const fetchReporte = async (fecha: string) => {
+    const fetchReporte = async (fecha: string, turno: string) => {
         setLoadingReport(true);
         try {
-            const res = await getReporteAsistencia(fecha);
+            const turnoParam = turno === 'todos' ? undefined : turno;
+            const res = await getReporteAsistencia(fecha, turnoParam);
             setReporte(res.data);
         } catch (error) {
             console.error('Error fetching reporte:', error);
@@ -124,7 +134,7 @@ const CoursesPage = () => {
     };
 
     const filteredReport = useMemo(() => {
-        return reporte.filter(item => {
+        return reporte.filter((item: ReporteItem) => {
             if (deferredFilterBy === 'present') return item.asistio;
             if (deferredFilterBy === 'absent') return !item.asistio;
             return true;
@@ -133,9 +143,86 @@ const CoursesPage = () => {
 
     const stats = useMemo(() => ({
         total: reporte.length,
-        present: reporte.filter(i => i.asistio).length,
-        absent: reporte.filter(i => !i.asistio).length
+        present: reporte.filter((i: ReporteItem) => i.asistio).length,
+        absent: reporte.filter((i: ReporteItem) => !i.asistio).length
     }), [reporte]);
+
+    const exportToExcel = (byAssociation: boolean) => {
+        if (reporte.length === 0) return;
+
+        const wb = XLSX.utils.book_new();
+        const dateStr = selectedDate.replace(/-/g, '_');
+        const filename = `Reporte_Asistencia_${dateStr}${selectedTurno !== 'todos' ? `_${selectedTurno}` : ''}.xlsx`;
+
+        const formatData = (items: ReporteItem[]) => items.map((i: ReporteItem) => {
+            const row: Record<string, string> = {
+                'DNI': i.dni,
+                'Apellidos': i.apellidos,
+                'Nombres': i.nombres,
+                'Asociación/Empresa': i.empresa,
+                'Estado': i.asistio ? 'PRESENTE' : 'FALTANTE'
+            };
+
+            if (i.asistio && i.detalles_asistencia.length > 0) {
+                row['Turno'] = i.detalles_asistencia.map(d => d.turno).join(', ');
+                row['Hora Marcado'] = i.detalles_asistencia.map(d => d.hora).join(', ');
+            }
+            return row;
+        });
+
+        if (!byAssociation) {
+            // Hoja General
+            const ws = XLSX.utils.json_to_sheet(formatData(reporte));
+            XLSX.utils.book_append_sheet(wb, ws, "General");
+        } else {
+            // Hojas por Asociación
+            const usedNames = new Set<string>();
+            const empresas = Array.from(new Set(reporte.map((i: ReporteItem) => i.empresa)));
+
+            empresas.forEach((emp: string) => {
+                const filtered = reporte.filter((i: ReporteItem) => i.empresa === emp);
+                const empresaId = filtered.length > 0 ? filtered[0].id_asociacion : 'X';
+
+                // Formatear datos para la tabla
+                const dataRows = formatData(filtered);
+
+                // Crear hoja vacía
+                const ws = XLSX.utils.aoa_to_sheet([]);
+
+                // Insertar encabezado personalizado en las primeras filas
+                XLSX.utils.sheet_add_aoa(ws, [
+                    ["REPORTE DE ASISTENCIA - CURSOVIAL"],
+                    [`EMPRESA: ${emp}`],
+                    [`FECHA: ${selectedDate}`, `TURNO: ${selectedTurno.toUpperCase()}`]
+                ], { origin: "A1" });
+
+                // Insertar los datos a partir de la fila 4
+                XLSX.utils.sheet_add_json(ws, dataRows, { origin: "A4" });
+
+                // Limitar nombre de la hoja a 31 caracteres (restricción Excel)
+                // Formato: ID 12 - NOMBRE
+                const baseName = `ID ${empresaId} - ${emp}`;
+                let sheetName = baseName.substring(0, 31).replace(/[\\*?:/[\]]/g, '_');
+
+                // Si el nombre ya existe (por truncamiento), añadimos un índice para hacerlo único
+                if (usedNames.has(sheetName)) {
+                    let counter = 1;
+                    let newName = sheetName;
+                    while (usedNames.has(newName)) {
+                        const suffix = ` (${counter})`;
+                        newName = sheetName.substring(0, 31 - suffix.length) + suffix;
+                        counter++;
+                    }
+                    sheetName = newName;
+                }
+
+                usedNames.add(sheetName);
+                XLSX.utils.book_append_sheet(wb, ws, sheetName);
+            });
+        }
+
+        XLSX.writeFile(wb, filename);
+    };
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
@@ -192,34 +279,67 @@ const CoursesPage = () => {
                             </div>
                             <div>
                                 <h4 className="text-lg font-bold text-slate-800">Reporte de Asistencia</h4>
-                                <input
-                                    type="date"
-                                    value={selectedDate}
-                                    onChange={(e) => setSelectedDate(e.target.value)}
-                                    className="text-sm text-primary-600 font-medium outline-none border-none p-0 bg-transparent cursor-pointer"
-                                />
+                                <div className="flex items-center space-x-4">
+                                    <input
+                                        type="date"
+                                        value={selectedDate}
+                                        onChange={(e) => setSelectedDate(e.target.value)}
+                                        className="text-sm text-primary-600 font-medium outline-none border-none p-0 bg-transparent cursor-pointer"
+                                    />
+                                    <select
+                                        value={selectedTurno}
+                                        onChange={(e) => setSelectedTurno(e.target.value)}
+                                        className="text-xs bg-slate-100 border-none rounded-md px-2 py-1 outline-none font-bold text-slate-600 cursor-pointer"
+                                    >
+                                        <option value="todos">Todos los Turnos</option>
+                                        <option value="mañana">Mañana</option>
+                                        <option value="tarde">Tarde</option>
+                                        <option value="noche">Noche</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-xl w-full md:w-auto">
-                            <button
-                                onClick={() => setFilterBy('all')}
-                                className={`flex-1 md:px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${filterBy === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                Todos ({stats.total})
-                            </button>
-                            <button
-                                onClick={() => setFilterBy('present')}
-                                className={`flex-1 md:px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${filterBy === 'present' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                Presentes ({stats.present})
-                            </button>
-                            <button
-                                onClick={() => setFilterBy('absent')}
-                                className={`flex-1 md:px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${filterBy === 'absent' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                Faltantes ({stats.absent})
-                            </button>
+                        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                            <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-xl flex-1 md:flex-initial">
+                                <button
+                                    onClick={() => setFilterBy('all')}
+                                    className={`flex-1 md:px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterBy === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                                >
+                                    Todos ({stats.total})
+                                </button>
+                                <button
+                                    onClick={() => setFilterBy('present')}
+                                    className={`flex-1 md:px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterBy === 'present' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
+                                >
+                                    Si ({stats.present})
+                                </button>
+                                <button
+                                    onClick={() => setFilterBy('absent')}
+                                    className={`flex-1 md:px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterBy === 'absent' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}
+                                >
+                                    No ({stats.absent})
+                                </button>
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => exportToExcel(false)}
+                                    className="p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all flex items-center space-x-2 text-xs font-bold shadow-sm h-10 px-3"
+                                    title="Exportar Lista General"
+                                >
+                                    <Download size={14} />
+                                    <span>General</span>
+                                </button>
+                                <button
+                                    onClick={() => exportToExcel(true)}
+                                    className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all flex items-center space-x-2 text-xs font-bold shadow-sm h-10 px-3"
+                                    title="Exportar por Hojas (Asociación)"
+                                >
+                                    <Table size={14} />
+                                    <span>Hojas</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 

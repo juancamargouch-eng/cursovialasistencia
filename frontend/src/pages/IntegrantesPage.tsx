@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue, memo } from 'react';
-import { UserPlus, Loader2, User, Camera, RefreshCw, CheckCircle, XCircle, Edit, Trash2, FlipHorizontal, Download } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { UserPlus, Loader2, User, Camera, RefreshCw, CheckCircle, XCircle, Edit, Trash2, FlipHorizontal, Download, ChevronLeft, ChevronRight, Search as SearchIcon } from 'lucide-react';
 import * as faceapi from 'face-api.js';
-import { getIntegrantes, crearIntegrante, getAsociaciones, actualizarIntegrante, eliminarIntegrante, subirFotoIndividual, API_URL } from '../services/api';
+import { getIntegrantes, crearIntegrante, getAsociaciones, actualizarIntegrante, eliminarIntegrante, subirFotoIndividual, getAuthenticatedFotoUrl } from '../services/api';
 import type { Integrante, Asociacion } from '../types';
 
 const IntegranteRow = memo(({ inte, asociacionName, onEdit, onDelete }: {
@@ -18,7 +18,7 @@ const IntegranteRow = memo(({ inte, asociacionName, onEdit, onDelete }: {
                     <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
                         {inte.tiene_foto ? (
                             <img
-                                src={`${API_URL}/fotos/${inte.dni}.jpg`}
+                                src={getAuthenticatedFotoUrl(inte.dni)}
                                 alt={inte.nombres}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -60,7 +60,7 @@ const IntegranteRow = memo(({ inte, asociacionName, onEdit, onDelete }: {
                     </button>
                     {inte.tiene_foto && (
                         <a
-                            href={`${API_URL}/fotos/${inte.dni}.jpg`}
+                            href={getAuthenticatedFotoUrl(inte.dni)}
                             download={`${inte.dni}.jpg`}
                             target="_blank"
                             rel="noreferrer"
@@ -87,18 +87,17 @@ const IntegrantesPage = () => {
     const [integrantes, setIntegrantes] = useState<Integrante[]>([]);
     const [asociaciones, setAsociaciones] = useState<Asociacion[]>([]);
     const [loading, setLoading] = useState(true);
+    const [totalRecords, setTotalRecords] = useState(0);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [editMode, setEditMode] = useState(false);
     const [editingIntegrante, setEditingIntegrante] = useState<Integrante | null>(null);
 
-    // Filter & Search State
+    // Paginación y Búsqueda
     const [searchTerm, setSearchTerm] = useState('');
     const [filterAsociacion, setFilterAsociacion] = useState<string>('all');
-
-    // Defer filtering to keep input responsive
-    const deferredSearchTerm = useDeferredValue(searchTerm);
-    const deferredFilterAsociacion = useDeferredValue(filterAsociacion);
+    const [page, setPage] = useState(1);
+    const limit = 20;
 
     // Camera & IA State
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -122,9 +121,52 @@ const IntegrantesPage = () => {
     });
 
     useEffect(() => {
-        fetchData();
         loadModels();
+        fetchAsociaciones();
     }, []);
+
+    const fetchAsociaciones = async () => {
+        try {
+            const res = await getAsociaciones();
+            setAsociaciones(res.data);
+        } catch (error) {
+            console.error('Error fetching asociaciones:', error);
+        }
+    };
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params = {
+                skip: (page - 1) * limit,
+                limit: limit,
+                search: searchTerm || undefined,
+                id_asociacion: filterAsociacion === 'all' ? undefined : parseInt(filterAsociacion)
+            };
+            const res = await getIntegrantes(params);
+            setIntegrantes(res.data.items);
+            setTotalRecords(res.data.total);
+            setConnectionError(false);
+        } catch (error) {
+            console.error('Error fetching data:', error);
+            setConnectionError(true);
+        } finally {
+            setLoading(false);
+        }
+    }, [page, searchTerm, filterAsociacion]);
+
+    // Resetear a página 1 cuando cambia la búsqueda o el filtro
+    useEffect(() => {
+        setPage(1);
+    }, [searchTerm, filterAsociacion]);
+
+    // Cargar datos cuando cambie cualquier parámetro (con un pequeño debounce)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetchData();
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [page, searchTerm, filterAsociacion, fetchData]);
 
     const loadModels = async () => {
         const MODEL_URL = '/models';
@@ -140,26 +182,9 @@ const IntegrantesPage = () => {
         }
     };
 
-    const fetchData = async () => {
-        try {
-            const [intRes, asocRes] = await Promise.all([
-                getIntegrantes(),
-                getAsociaciones()
-            ]);
-            setIntegrantes(intRes.data);
-            setAsociaciones(asocRes.data);
-            setConnectionError(false);
-        } catch (error) {
-            console.error('Error fetching data:', error);
-            setConnectionError(true);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const startCamera = useCallback(async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setCameraError('Cámara bloqueada por seguridad. Use HTTPS o ajuste los permisos del navegador.');
+            setCameraError('Cámara bloqueada por seguridad.');
             return;
         }
         try {
@@ -173,7 +198,7 @@ const IntegrantesPage = () => {
             }
         } catch (err: unknown) {
             console.error('Error accessing webcam:', err);
-            setCameraError('No se pudo acceder a la cámara. Verifique permisos o conexión segura (SSL).');
+            setCameraError('No se pudo acceder a la cámara.');
         }
     }, [facingMode]);
 
@@ -201,7 +226,6 @@ const IntegrantesPage = () => {
         }
     }, [isModalOpen, modelsLoaded, startCamera, stopCamera]);
 
-    // Loop de detección en tiempo real para feedback visual
     useEffect(() => {
         let interval: NodeJS.Timeout;
         if (isCameraActive && videoRef.current && canvasRef.current) {
@@ -217,8 +241,6 @@ const IntegrantesPage = () => {
                         if (currentCanvas && currentVideo) {
                             const dims = faceapi.matchDimensions(currentCanvas, currentVideo, true);
                             const resizedDetections = faceapi.resizeResults(detection, dims);
-
-                            // Dibujar cuadro verde suave
                             const drawBox = new faceapi.draw.DrawBox(resizedDetections.detection.box, {
                                 label: 'Rostro Detectado',
                                 boxColor: '#10b981'
@@ -280,8 +302,7 @@ const IntegrantesPage = () => {
     }, []);
 
     const handleDelete = useCallback(async (id: number) => {
-        if (!window.confirm('¿Está seguro de que desea eliminar este integrante? Esta acción es permanente.')) return;
-
+        if (!window.confirm('¿Está seguro de que desea eliminar este integrante?')) return;
         try {
             await eliminarIntegrante(id);
             fetchData();
@@ -289,7 +310,7 @@ const IntegrantesPage = () => {
             console.error('Error deleting integrante:', error);
             alert('Error al eliminar el integrante.');
         }
-    }, []);
+    }, [fetchData]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -298,54 +319,25 @@ const IntegrantesPage = () => {
         setSaving(true);
         try {
             if (editingIntegrante) {
-                // 1. Actualizar datos base
                 await actualizarIntegrante(editingIntegrante.id, {
                     nombres: formData.nombres,
                     apellidos: formData.apellidos,
                     id_asociacion: parseInt(formData.id_asociacion),
-                    // Solo enviamos descriptor si se capturó uno nuevo
                     face_descriptor: capturedDescriptor || undefined,
                     tiene_foto: capturedDescriptor ? true : formData.tiene_foto
                 });
-
-                // 2. Subir nueva foto física con recorte 3:4 (Vertical)
                 if (videoRef.current && capturedDescriptor) {
                     const canvas = document.createElement('canvas');
-                    const vWidth = videoRef.current.videoWidth;
-                    const vHeight = videoRef.current.videoHeight;
-
-                    const desiredAspect = 3 / 4;
-                    let cropWidth = vWidth;
-                    let cropHeight = vHeight;
-                    let startX = 0;
-                    let startY = 0;
-
-                    if (vWidth / vHeight > desiredAspect) {
-                        cropWidth = vHeight * desiredAspect;
-                        startX = (vWidth - cropWidth) / 2;
-                    } else {
-                        cropHeight = vWidth / desiredAspect;
-                        startY = (vHeight - cropHeight) / 2;
-                    }
-
                     canvas.width = 480;
                     canvas.height = 640;
-
-                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                    if (ctx) {
-                        ctx.drawImage(
-                            videoRef.current,
-                            startX, startY, cropWidth, cropHeight,
-                            0, 0, canvas.width, canvas.height
-                        );
+                    const ctx = canvas.getContext('2d');
+                    if (ctx && videoRef.current) {
+                        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
                         const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-                        if (blob) {
-                            await subirFotoIndividual(formData.dni, blob);
-                        }
+                        if (blob) await subirFotoIndividual(formData.dni, blob);
                     }
                 }
             } else {
-                // 1. Crear integrante
                 await crearIntegrante({
                     dni: formData.dni,
                     nombres: formData.nombres,
@@ -354,41 +346,15 @@ const IntegrantesPage = () => {
                     tiene_foto: !!capturedDescriptor,
                     face_descriptor: capturedDescriptor || undefined
                 });
-
-                // 2. Subir foto física con recorte 3:4
                 if (videoRef.current && capturedDescriptor) {
                     const canvas = document.createElement('canvas');
-                    const vWidth = videoRef.current.videoWidth;
-                    const vHeight = videoRef.current.videoHeight;
-
-                    const desiredAspect = 3 / 4;
-                    let cropWidth = vWidth;
-                    let cropHeight = vHeight;
-                    let startX = 0;
-                    let startY = 0;
-
-                    if (vWidth / vHeight > desiredAspect) {
-                        cropWidth = vHeight * desiredAspect;
-                        startX = (vWidth - cropWidth) / 2;
-                    } else {
-                        cropHeight = vWidth / desiredAspect;
-                        startY = (vHeight - cropHeight) / 2;
-                    }
-
                     canvas.width = 480;
                     canvas.height = 640;
-
-                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                    if (ctx) {
-                        ctx.drawImage(
-                            videoRef.current,
-                            startX, startY, cropWidth, cropHeight,
-                            0, 0, canvas.width, canvas.height
-                        );
+                    const ctx = canvas.getContext('2d');
+                    if (ctx && videoRef.current) {
+                        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
                         const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-                        if (blob) {
-                            await subirFotoIndividual(formData.dni, blob);
-                        }
+                        if (blob) await subirFotoIndividual(formData.dni, blob);
                     }
                 }
             }
@@ -402,45 +368,26 @@ const IntegrantesPage = () => {
         }
     };
 
-    const filteredIntegrantes = useMemo(() => {
-        return integrantes.filter(inte => {
-            const matchesSearch =
-                inte.nombres.toLowerCase().includes(deferredSearchTerm.toLowerCase()) ||
-                inte.apellidos.toLowerCase().includes(deferredSearchTerm.toLowerCase()) ||
-                inte.dni.includes(deferredSearchTerm);
-
-            const matchesFilter = deferredFilterAsociacion === 'all' || inte.id_asociacion === parseInt(deferredFilterAsociacion);
-
-            return matchesSearch && matchesFilter;
-        });
-    }, [integrantes, deferredSearchTerm, deferredFilterAsociacion]);
+    const totalPages = Math.ceil(totalRecords / limit);
 
     return (
         <div className="space-y-6">
             {connectionError && (
-                <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4">
+                <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center space-x-3 text-rose-700">
                         <XCircle size={24} />
                         <div>
                             <p className="font-bold text-sm">Error de Conexión</p>
-                            <p className="text-xs opacity-80">Debe autorizar el certificado de la API (puerto 8000).</p>
+                            <p className="text-xs opacity-80">Verifique la conexión con la API.</p>
                         </div>
                     </div>
-                    <a
-                        href={`${API_URL}/asociaciones/`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="bg-rose-600 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-rose-700 transition-all shadow-md active:scale-95"
-                    >
-                        Autorizar API
-                    </a>
                 </div>
             )}
 
             <div className="flex justify-between items-center">
                 <div>
                     <h3 className="text-2xl font-bold text-slate-800">Integrantes</h3>
-                    <p className="text-slate-500">Gestión de conductores y asociados</p>
+                    <p className="text-slate-500">Gestión de conductores y asociados ({totalRecords} total)</p>
                 </div>
                 <button
                     onClick={openCreateModal}
@@ -460,7 +407,7 @@ const IntegrantesPage = () => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none transition-all"
                     />
-                    <User className="absolute left-3 top-2.5 text-slate-400" size={18} />
+                    <SearchIcon className="absolute left-3 top-2.5 text-slate-400" size={18} />
                 </div>
                 <div className="md:w-64">
                     <select
@@ -483,42 +430,74 @@ const IntegrantesPage = () => {
                             <Loader2 className="animate-spin text-primary-500" size={32} />
                         </div>
                     ) : (
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-xs font-semibold">
-                                <tr>
-                                    <th className="px-6 py-4">DNI</th>
-                                    <th className="px-6 py-4">Integrantes (Apellidos y Nombres)</th>
-                                    <th className="px-6 py-4">Asociación</th>
-                                    <th className="px-6 py-4">Estado Foto</th>
-                                    <th className="px-6 py-4 text-center">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {filteredIntegrantes.map((inte) => (
-                                    <IntegranteRow
-                                        key={inte.id}
-                                        inte={inte}
-                                        asociacionName={asociaciones.find(a => a.id === inte.id_asociacion)?.nombre || 'N/A'}
-                                        onEdit={openEditModal}
-                                        onDelete={handleDelete}
-                                    />
-                                ))}
-                            </tbody>
-                        </table>
+                        <>
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-xs font-semibold">
+                                    <tr>
+                                        <th className="px-6 py-4">DNI</th>
+                                        <th className="px-6 py-4">Integrantes (Apellidos y Nombres)</th>
+                                        <th className="px-6 py-4">Asociación</th>
+                                        <th className="px-6 py-4">Estado Foto</th>
+                                        <th className="px-6 py-4 text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {integrantes.map((inte) => (
+                                        <IntegranteRow
+                                            key={inte.id}
+                                            inte={inte}
+                                            asociacionName={asociaciones.find(a => a.id === inte.id_asociacion)?.nombre || 'N/A'}
+                                            onEdit={openEditModal}
+                                            onDelete={handleDelete}
+                                        />
+                                    ))}
+                                    {integrantes.length === 0 && (
+                                        <tr>
+                                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-medium">
+                                                No se encontraron resultados
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+
+                            {/* Controles de Paginación */}
+                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                                <span className="text-sm text-slate-500">
+                                    Mostrando pág. {page} de {totalPages || 1} ({totalRecords} registros)
+                                </span>
+                                <div className="flex items-center space-x-2">
+                                    <button
+                                        disabled={page === 1}
+                                        onClick={() => setPage(prev => prev - 1)}
+                                        className="p-2 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <ChevronLeft size={20} />
+                                    </button>
+                                    <button
+                                        disabled={page >= totalPages}
+                                        onClick={() => setPage(prev => prev + 1)}
+                                        className="p-2 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <ChevronRight size={20} />
+                                    </button>
+                                </div>
+                            </div>
+                        </>
                     )}
                 </div>
             </div>
 
             {isModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col lg:flex-row overflow-hidden max-h-[90vh]">
-                        <div className={`lg:w-1/2 bg-slate-100 p-6 flex flex-col justify-center items-center relative border-b lg:border-b-0 lg:border-r border-slate-200`}>
+                    <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden max-h-[95vh] lg:max-h-[90vh]">
+                        <div className={`lg:w-1/2 bg-slate-100 p-4 md:p-6 flex flex-col justify-center items-center relative border-b lg:border-b-0 lg:border-r border-slate-200 shrink-0`}>
                             <h4 className="text-lg font-bold text-slate-700 mb-4 flex items-center space-x-2 w-full">
                                 <Camera size={20} className="text-primary-500" />
                                 <span>Captura de Rostro</span>
                             </h4>
 
-                            <div className="relative aspect-[3/4] lg:max-w-sm w-full bg-slate-900 rounded-xl overflow-hidden shadow-inner flex items-center justify-center">
+                            <div className="relative aspect-[3/4] max-w-[280px] md:max-w-sm w-full bg-slate-900 rounded-xl overflow-hidden shadow-inner flex items-center justify-center">
                                 {!modelsLoaded && (
                                     <div className="text-white text-center">
                                         <Loader2 className="animate-spin mx-auto mb-2" size={32} />
@@ -536,12 +515,6 @@ const IntegrantesPage = () => {
                                     <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center p-6 text-center text-white space-y-4 z-20">
                                         <XCircle size={40} className="text-rose-500" />
                                         <p className="text-xs opacity-80">{cameraError}</p>
-                                        <div className="bg-slate-800 p-3 rounded-xl text-left text-[10px] font-mono border border-slate-700 space-y-1">
-                                            <p className="text-primary-400 font-bold underline">SOLUCIÓN:</p>
-                                            <p>1. Visite: <a href={`${API_URL}/asociaciones/`} target="_blank" rel="noreferrer" className="text-blue-400 underline font-bold">Verificar API</a></p>
-                                            <p>2. Clic en "Configuración Avanzada" y luego en "Acceder/Proceder".</p>
-                                            <p>3. Regrese y recargue esta pantalla.</p>
-                                        </div>
                                     </div>
                                 )}
 
@@ -558,7 +531,7 @@ const IntegrantesPage = () => {
                             <button
                                 type="button"
                                 onClick={toggleCamera}
-                                className="w-full py-2 mb-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium flex items-center justify-center space-x-2 text-xs"
+                                className="w-full py-2 mb-2 mt-4 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium flex items-center justify-center space-x-2 text-xs"
                             >
                                 <FlipHorizontal size={16} />
                                 <span>Girar Cámara</span>
@@ -588,7 +561,7 @@ const IntegrantesPage = () => {
                             )}
                         </div>
 
-                        <div className="lg:w-1/2 p-8 overflow-y-auto">
+                        <div className="lg:w-1/2 p-6 md:p-8 lg:overflow-y-auto">
                             <h3 className="text-2xl font-bold text-slate-800 mb-6">
                                 {editMode ? 'Editar Datos' : 'Nuevo Integrante'}
                             </h3>
@@ -665,9 +638,6 @@ const IntegrantesPage = () => {
                                         )}
                                     </button>
                                 </div>
-                                {!capturedDescriptor && !saving && !editMode && (
-                                    <p className="text-xs text-rose-500 text-center font-medium">Debe capturar el rostro antes de guardar.</p>
-                                )}
                             </form>
                         </div>
                     </div>

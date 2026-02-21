@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import DashboardLayout from './components/Layout/DashboardLayout';
 import DashboardHome from './pages/DashboardHome';
 import AsociacionesPage from './pages/AsociacionesPage';
@@ -7,13 +7,11 @@ import AttendanceControl from './pages/AttendanceControl';
 import BulkUploadPage from './pages/BulkUploadPage';
 import CoursesPage from './pages/CoursesPage';
 import LoginPage from './pages/LoginPage';
+import PublicCheckInPage from './pages/PublicCheckInPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-function AppContent() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
-
-  console.log('AppContent: isAuthenticated =', isAuthenticated, 'loading =', loading);
 
   if (loading) {
     return (
@@ -24,39 +22,49 @@ function AppContent() {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage />;
+    return <Navigate to="/login" replace />;
   }
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <DashboardHome />;
-      case 'asociaciones':
-        return <AsociacionesPage />;
-      case 'integrantes':
-        return <IntegrantesPage />;
-      case 'asistencia':
-        return <AttendanceControl />;
-      case 'bulk-upload':
-        return <BulkUploadPage />;
-      case 'cursos':
-        return <CoursesPage />;
-      default:
-        return <DashboardHome />;
-    }
-  };
+  return <>{children}</>;
+}
+
+function AppRoutes() {
+  const { isAuthenticated } = useAuth();
 
   return (
-    <DashboardLayout activeTab={activeTab} setActiveTab={setActiveTab}>
-      {renderContent()}
-    </DashboardLayout>
+    <Routes>
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} />
+
+      <Route path="/" element={
+        <ProtectedRoute>
+          <DashboardLayout />
+        </ProtectedRoute>
+      }>
+        <Route index element={<DashboardHome />} />
+        <Route path="asociaciones" element={<AsociacionesPage />} />
+        <Route path="integrantes" element={<IntegrantesPage />} />
+        <Route path="asistencia" element={<AttendanceControl />} />
+        <Route path="bulk-upload" element={<BulkUploadPage />} />
+        <Route path="cursos" element={<CoursesPage />} />
+      </Route>
+
+      <Route path="/public-check-in" element={
+        <ProtectedRoute>
+          <PublicCheckInPage />
+        </ProtectedRoute>
+      } />
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <Router>
+        <AppRoutes />
+      </Router>
     </AuthProvider>
   );
 }

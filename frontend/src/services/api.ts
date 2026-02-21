@@ -34,12 +34,27 @@ api.interceptors.request.use((config) => {
     return Promise.reject(error);
 });
 
+// Interceptor para manejar errores de respuesta (especialmente 401)
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response && error.response.status === 401) {
+            console.warn('Sesión expirada o no autorizada. Redirigiendo...');
+            localStorage.removeItem('token');
+            // Recargamos la página para que el router mande al login
+            window.location.href = '/login';
+        }
+        return Promise.reject(error);
+    }
+);
+
 export const loginUser = (formData: FormData) => api.post('/token', formData);
 
 export const getAsociaciones = () => api.get('/asociaciones/');
 export const crearAsociacion = (data: { nombre: string }) => api.post('/asociaciones/', data);
 
-export const getIntegrantes = () => api.get('/integrantes/');
+export const getIntegrantes = (params?: { skip?: number, limit?: number, search?: string, id_asociacion?: number }) =>
+    api.get('/integrantes/', { params });
 export const crearIntegrante = (data: {
     dni: string,
     nombres: string,
@@ -63,13 +78,14 @@ export const actualizarFaceDescriptor = (id: number, face_descriptor: number[]) 
     api.put(`/integrantes/${id}/face`, { face_descriptor });
 
 export const registrarAsistencia = (data: { id_integrante: number, turno: string }) =>
-    api.post('/asistencia/', data);
+    api.post('/asistencias/', data);
 
 export const getAsistencias = () => api.get('/asistencias/');
 
 export const getCursos = () => api.get('/cursos/');
 export const crearCurso = (data: { nombre: string, fecha: string }) => api.post('/cursos/', data);
-export const getReporteAsistencia = (fecha: string) => api.get(`/reporte-asistencia/?fecha=${fecha}`);
+export const getReporteAsistencia = (fecha: string, turno?: string) =>
+    api.get(`/asistencias/reporte/`, { params: { fecha, turno } });
 
 export const bulkUpload = (file: File) => {
     const formData = new FormData();
@@ -93,4 +109,9 @@ export const subirFotoIndividual = (dni: string, file: Blob) => {
     return api.post(`/upload-photo/${dni}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     });
+};
+
+export const getAuthenticatedFotoUrl = (dni: string) => {
+    const token = localStorage.getItem('token');
+    return `${API_URL}/fotos/${dni}.jpg${token ? `?token=${token}` : ''}`;
 };

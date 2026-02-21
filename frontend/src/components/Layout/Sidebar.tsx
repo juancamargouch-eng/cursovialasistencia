@@ -1,38 +1,44 @@
 import { LayoutDashboard, Users, Building2, Camera, LogOut, FileUp, Calendar, X } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 interface SidebarItemProps {
     icon: React.ElementType;
     label: string;
-    active?: boolean;
-    onClick: () => void;
+    to: string;
+    onClick?: () => void;
 }
 
-const SidebarItem = ({ icon: Icon, label, active, onClick }: SidebarItemProps) => (
-    <button
+const SidebarItem = ({ icon: Icon, label, to, onClick }: SidebarItemProps) => (
+    <NavLink
+        to={to}
         onClick={onClick}
-        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${active
-            ? 'bg-primary-600 text-white'
-            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
+        className={({ isActive }) => `
+            w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors 
+            ${isActive
+                ? 'bg-primary-600 text-white'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            }
+        `}
     >
         <Icon size={20} />
         <span className="font-medium">{label}</span>
-    </button>
+    </NavLink>
 );
 
 interface SidebarProps {
-    activeTab: string;
-    setActiveTab: (tab: string) => void;
     onClose?: () => void;
 }
 
-const Sidebar = ({ activeTab, setActiveTab, onClose }: SidebarProps) => {
+const Sidebar = ({ onClose }: SidebarProps) => {
+    const { logout } = useAuth();
+
     return (
         <div className="w-64 bg-slate-900 h-screen flex flex-col p-4 text-white shadow-2xl relative">
             {onClose && (
                 <button
                     onClick={onClose}
-                    className="lg:hidden absolute top-4 right-4 p-2 text-slate-400 hover:text-white"
+                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white transition-colors"
                 >
                     <X size={24} />
                 </button>
@@ -48,47 +54,49 @@ const Sidebar = ({ activeTab, setActiveTab, onClose }: SidebarProps) => {
                 <SidebarItem
                     icon={LayoutDashboard}
                     label="Dashboard"
-                    active={activeTab === 'dashboard'}
-                    onClick={() => setActiveTab('dashboard')}
+                    to="/"
+                    onClick={onClose}
                 />
                 <SidebarItem
                     icon={Building2}
                     label="Asociaciones"
-                    active={activeTab === 'asociaciones'}
-                    onClick={() => setActiveTab('asociaciones')}
+                    to="/asociaciones"
+                    onClick={onClose}
                 />
                 <SidebarItem
                     icon={Users}
                     label="Integrantes"
-                    active={activeTab === 'integrantes'}
-                    onClick={() => setActiveTab('integrantes')}
+                    to="/integrantes"
+                    onClick={onClose}
                 />
                 <SidebarItem
                     icon={Camera}
                     label="Asistencia"
-                    active={activeTab === 'asistencia'}
-                    onClick={() => setActiveTab('asistencia')}
+                    to="/asistencia"
+                    onClick={onClose}
                 />
                 <SidebarItem
                     icon={FileUp}
                     label="Carga Masiva"
-                    active={activeTab === 'bulk-upload'}
-                    onClick={() => setActiveTab('bulk-upload')}
+                    to="/bulk-upload"
+                    onClick={onClose}
                 />
                 <SidebarItem
                     icon={Calendar}
                     label="Cursos y Reportes"
-                    active={activeTab === 'cursos'}
-                    onClick={() => setActiveTab('cursos')}
+                    to="/cursos"
+                    onClick={onClose}
                 />
             </nav>
 
             <div className="mt-auto border-t border-slate-800 pt-4">
-                <SidebarItem
-                    icon={LogOut}
-                    label="Cerrar Sesión"
-                    onClick={() => console.log('Logout')}
-                />
+                <button
+                    onClick={logout}
+                    className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:bg-rose-900/20 hover:text-rose-500 transition-colors"
+                >
+                    <LogOut size={20} />
+                    <span className="font-medium">Cerrar Sesión</span>
+                </button>
             </div>
         </div>
     );

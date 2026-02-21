@@ -36,7 +36,7 @@ const DashboardHome = () => {
             try {
                 const [asoc, int, asis] = await Promise.all([
                     getAsociaciones(),
-                    getIntegrantes(),
+                    getIntegrantes({ limit: 1 }), // Solo queremos el total
                     getAsistencias()
                 ]);
 
@@ -46,7 +46,7 @@ const DashboardHome = () => {
                 setAsistenciasHoy(listAsis);
                 setStats({
                     asociaciones: asoc.data.length,
-                    integrantes: int.data.length,
+                    integrantes: int.data.total ?? int.data.length,
                     asistencias: listAsis.length
                 });
                 setConnectionError(false);
