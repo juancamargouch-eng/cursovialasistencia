@@ -17,7 +17,7 @@ const getServerIP = () => {
 };
 
 export const API_URL = getServerIP();
-console.log('API_URL configurada en:', API_URL);
+// console.log('API_URL configurada en:', API_URL); // Eliminado por seguridad en producción
 
 export const api = axios.create({
     baseURL: API_URL,
@@ -38,12 +38,16 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
+        // Manejo de errores silencioso para privacidad
         if (error.response && error.response.status === 401) {
+            // Solo logeamos advertencias, no errores de red completos
             console.warn('Sesión expirada o no autorizada. Redirigiendo...');
             localStorage.removeItem('token');
-            // Recargamos la página para que el router mande al login
             window.location.href = '/login';
         }
+
+        // Si no hay respuesta (Network Error), silenciamos el log por defecto de Axios
+        // pero permitimos que el componente que llamó a la API maneje el error.
         return Promise.reject(error);
     }
 );
@@ -65,6 +69,7 @@ export const crearIntegrante = (data: {
 }) => api.post('/integrantes/', data);
 
 export const actualizarIntegrante = (id: number, data: {
+    dni?: string,
     nombres?: string,
     apellidos?: string,
     id_asociacion?: number,

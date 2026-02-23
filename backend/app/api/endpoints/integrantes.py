@@ -19,7 +19,9 @@ def crear_integrante(
     db: Session = Depends(session.get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
+    # Limpiar DNI y asegurar id_asociacion válido
     dni = integrante.dni.zfill(8)
+    id_asoc = integrante.id_asociacion if (integrante.id_asociacion and integrante.id_asociacion > 0) else 1
     
     # Búsqueda global por DNI
     persona_existente = db.query(models.Integrante).filter(models.Integrante.dni == dni).first()
@@ -27,7 +29,9 @@ def crear_integrante(
     # CASO: Emparejamiento Automático
     # Si no se especificó asociación (id_asociacion <= 1 o 0) y el DNI ya existe,
     # simplemente actualizamos los datos faciales del registro existente más antiguo/principal.
-    if (not integrante.id_asociacion or integrante.id_asociacion <= 1) and persona_existente:
+    # CASO: Emparejamiento Automático o Asociación General
+    # Si es asociación General (1) y el DNI ya existe, actualizamos registros faciales.
+    if id_asoc <= 1 and persona_existente:
         if integrante.nombres and persona_existente.nombres == "POR COMPLETAR": 
             persona_existente.nombres = integrante.nombres
         if integrante.apellidos and persona_existente.apellidos == "POR COMPLETAR": 
@@ -45,7 +49,7 @@ def crear_integrante(
     # CASO: Registro en Asociación Específica
     db_integrante = db.query(models.Integrante).filter(
         models.Integrante.dni == dni,
-        models.Integrante.id_asociacion == integrante.id_asociacion
+        models.Integrante.id_asociacion == id_asoc
     ).first()
     
     if db_integrante:
@@ -64,7 +68,7 @@ def crear_integrante(
         dni=dni,
         nombres=integrante.nombres,
         apellidos=integrante.apellidos,
-        id_asociacion=integrante.id_asociacion,
+        id_asociacion=id_asoc,
         tiene_foto=persona_existente.tiene_foto if persona_existente else integrante.tiene_foto,
         face_descriptor=persona_existente.face_descriptor if persona_existente else integrante.face_descriptor
     )
@@ -128,6 +132,8 @@ def actualizar_integrante(
         db_integrante.tiene_foto = integrante.tiene_foto
     if integrante.face_descriptor is not None:
         db_integrante.face_descriptor = integrante.face_descriptor
+    if integrante.dni is not None and integrante.dni != db_integrante.dni:
+        db_integrante.dni = integrante.dni.zfill(8)
     
     db.commit()
     db.refresh(db_integrante)

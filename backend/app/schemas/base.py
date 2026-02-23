@@ -50,6 +50,7 @@ class IntegranteCreate(IntegranteBase):
     face_descriptor: Optional[List[float]] = None
 
 class IntegranteUpdate(BaseModel):
+    dni: Optional[str] = None
     nombres: Optional[str] = None
     apellidos: Optional[str] = None
     id_asociacion: Optional[int] = None

@@ -27,6 +27,7 @@ const AttendanceControl = () => {
     const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
     const [unknownCount, setUnknownCount] = useState(0);
     const [showQuickRegister, setShowQuickRegister] = useState(false);
+    const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
     // Form state for Quick Register
     const [quickForm, setQuickForm] = useState({ dni: '', nombres: '', apellidos: '', id_asociacion: 0 });
@@ -219,6 +220,7 @@ const AttendanceControl = () => {
                     const currentVideo = videoRef.current;
 
                     if (currentCanvas && currentVideo) {
+                        currentCanvas.getContext('2d', { willReadFrequently: true });
                         const dims = faceapi.matchDimensions(currentCanvas, currentVideo, true);
                         const resizedDetections = faceapi.resizeResults(detections, dims);
 
@@ -307,7 +309,7 @@ const AttendanceControl = () => {
                 startY = (vHeight - cropHeight) / 2;
             }
 
-            canvas.width = 480; // Resolución estándar para perfil
+            canvas.width = 480;
             canvas.height = 640;
 
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -318,6 +320,9 @@ const AttendanceControl = () => {
                     startX, startY, cropWidth, cropHeight, // Corte origen
                     0, 0, canvas.width, canvas.height     // Destino
                 );
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                setCapturedImage(dataUrl);
+
                 photoBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
             }
 
@@ -346,6 +351,7 @@ const AttendanceControl = () => {
             // Limpiar formulario
             setQuickForm({ dni: '', nombres: '', apellidos: '', id_asociacion: 0 });
             setAsocQuery('');
+            setCapturedImage(null);
         } catch (error: unknown) {
             console.error('Error en registro rápido:', error);
             let msg = 'Error al registrar integrante';
@@ -587,7 +593,7 @@ const AttendanceControl = () => {
                                 <UserPlus size={28} />
                                 <h5 className="font-black text-xl">Registro de Nuevo Alumno</h5>
                             </div>
-                            <button onClick={() => { setShowQuickRegister(false); setUnknownCount(0); }} className="p-2 hover:bg-white/20 rounded-xl">
+                            <button onClick={() => { setShowQuickRegister(false); setUnknownCount(0); setCapturedImage(null); }} className="p-2 hover:bg-white/20 rounded-xl">
                                 <XCircle size={28} />
                             </button>
                         </div>
@@ -606,7 +612,10 @@ const AttendanceControl = () => {
                                                 placeholder="Ingrese DNI..."
                                                 className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 outline-none font-bold text-xl transition-all"
                                                 value={quickForm.dni}
-                                                onChange={e => setQuickForm({ ...quickForm, dni: e.target.value })}
+                                                onChange={e => {
+                                                    const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+                                                    setQuickForm({ ...quickForm, dni: val });
+                                                }}
                                             />
                                         </div>
                                     </div>
@@ -619,7 +628,7 @@ const AttendanceControl = () => {
                                                 placeholder="PENDIENTE"
                                                 className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-amber-400"
                                                 value={quickForm.nombres}
-                                                onChange={e => setQuickForm({ ...quickForm, nombres: e.target.value })}
+                                                onChange={e => setQuickForm({ ...quickForm, nombres: e.target.value.toUpperCase() })}
                                             />
                                         </div>
                                         <div className="space-y-1">
@@ -629,7 +638,7 @@ const AttendanceControl = () => {
                                                 placeholder="PENDIENTE"
                                                 className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-amber-400"
                                                 value={quickForm.apellidos}
-                                                onChange={e => setQuickForm({ ...quickForm, apellidos: e.target.value })}
+                                                onChange={e => setQuickForm({ ...quickForm, apellidos: e.target.value.toUpperCase() })}
                                             />
                                         </div>
                                     </div>
@@ -668,12 +677,15 @@ const AttendanceControl = () => {
 
                                 {/* Video Preview - Moved Down */}
                                 <div className="p-0 bg-slate-900 aspect-[3/4] relative overflow-hidden ring-4 ring-amber-500/20 border-2 border-amber-600 rounded-2xl shrink-0">
+                                    {capturedImage && (
+                                        <img src={capturedImage} className="w-full h-full object-cover rounded-xl absolute inset-0 z-10" alt="Captura" />
+                                    )}
                                     <video
                                         ref={quickVideoRef}
                                         autoPlay
                                         muted
                                         playsInline
-                                        className="w-full h-full object-cover rounded-xl"
+                                        className={`w-full h-full object-cover rounded-xl ${capturedImage ? 'hidden' : ''}`}
                                     />
 
                                     {cameraError && (

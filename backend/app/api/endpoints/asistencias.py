@@ -46,16 +46,20 @@ def listar_asistencias(db: Session = Depends(session.get_db), current_user: mode
     asistencias = db.query(models.Asistencia).all()
     resultado = []
     for a in asistencias:
+        inte = a.integrante
+        if not inte:
+            continue # Omitir asistencias sin integrante (huérfanas)
+            
         resultado.append({
             "id": a.id,
             "id_integrante": a.id_integrante,
-            "dni_integrante": a.integrante.dni,
+            "dni_integrante": inte.dni,
             "fecha": a.fecha,
             "turno": a.turno,
-            "nombres": a.integrante.nombres,
-            "apellidos": a.integrante.apellidos,
-            "nombre_asociacion": a.integrante.asociacion.nombre,
-            "tiene_foto": a.integrante.tiene_foto
+            "nombres": inte.nombres,
+            "apellidos": inte.apellidos,
+            "nombre_asociacion": inte.asociacion.nombre if inte.asociacion else "SIN ASOCIACIÓN",
+            "tiene_foto": inte.tiene_foto
         })
     return resultado
 
@@ -91,7 +95,7 @@ def reporte_asistencia(fecha: date, turno: str = None, db: Session = Depends(ses
             "nombres": inte.nombres,
             "apellidos": inte.apellidos,
             "id_asociacion": inte.id_asociacion,
-            "empresa": inte.asociacion.nombre,
+            "empresa": inte.asociacion.nombre if inte.asociacion else "SIN ASOCIACIÓN",
             "tiene_foto": inte.tiene_foto,
             "asistio": len(asistencias_inte) > 0,
             "detalles_asistencia": asistencias_inte # Lista con turnos y horas

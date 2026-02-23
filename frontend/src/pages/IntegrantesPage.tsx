@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { UserPlus, Loader2, User, Camera, RefreshCw, CheckCircle, XCircle, Edit, Trash2, FlipHorizontal, Download, ChevronLeft, ChevronRight, Search as SearchIcon } from 'lucide-react';
+import { UserPlus, Loader2, User, Camera, RefreshCw, CheckCircle, XCircle, Edit, Trash2, FlipHorizontal, Download, ChevronLeft, ChevronRight, Search as SearchIcon, AlertTriangle } from 'lucide-react';
 import * as faceapi from 'face-api.js';
 import { getIntegrantes, crearIntegrante, getAsociaciones, actualizarIntegrante, eliminarIntegrante, subirFotoIndividual, getAuthenticatedFotoUrl } from '../services/api';
 import type { Integrante, Asociacion } from '../types';
@@ -8,7 +8,7 @@ const IntegranteRow = memo(({ inte, asociacionName, onEdit, onDelete }: {
     inte: Integrante,
     asociacionName: string,
     onEdit: (inte: Integrante) => void,
-    onDelete: (id: number) => void
+    onDelete: (inte: Integrante) => void
 }) => {
     return (
         <tr className="hover:bg-slate-50 transition-colors">
@@ -71,7 +71,7 @@ const IntegranteRow = memo(({ inte, asociacionName, onEdit, onDelete }: {
                         </a>
                     )}
                     <button
-                        onClick={() => onDelete(inte.id)}
+                        onClick={() => onDelete(inte)}
                         className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
                         title="Eliminar integrante"
                     >
@@ -89,6 +89,7 @@ const IntegrantesPage = () => {
     const [loading, setLoading] = useState(true);
     const [totalRecords, setTotalRecords] = useState(0);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [deleteConfirm, setDeleteConfirm] = useState<Integrante | null>(null);
     const [saving, setSaving] = useState(false);
     const [editMode, setEditMode] = useState(false);
     const [editingIntegrante, setEditingIntegrante] = useState<Integrante | null>(null);
@@ -109,6 +110,7 @@ const IntegrantesPage = () => {
     const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
     const [cameraError, setCameraError] = useState<string | null>(null);
     const [connectionError, setConnectionError] = useState(false);
+    const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
     // Form state
     const [formData, setFormData] = useState({
@@ -222,6 +224,7 @@ const IntegrantesPage = () => {
         } else {
             stopCamera();
             setCapturedDescriptor(null);
+            setCapturedImage(null);
             setFaceDetected(false);
         }
     }, [isModalOpen, modelsLoaded, startCamera, stopCamera]);
@@ -239,6 +242,7 @@ const IntegrantesPage = () => {
                         const currentCanvas = canvasRef.current;
                         const currentVideo = videoRef.current;
                         if (currentCanvas && currentVideo) {
+                            currentCanvas.getContext('2d', { willReadFrequently: true });
                             const dims = faceapi.matchDimensions(currentCanvas, currentVideo, true);
                             const resizedDetections = faceapi.resizeResults(detection, dims);
                             const drawBox = new faceapi.draw.DrawBox(resizedDetections.detection.box, {
@@ -269,6 +273,32 @@ const IntegrantesPage = () => {
                 .withFaceDescriptor();
 
             if (detection) {
+                // Capturar el frame actual para la previsualización con recorte 3:4
+                const canvas = document.createElement('canvas');
+                const vWidth = videoRef.current.videoWidth;
+                const vHeight = videoRef.current.videoHeight;
+                const desiredAspect = 3 / 4;
+                let cropWidth = vWidth;
+                let cropHeight = vHeight;
+                let startX = 0;
+                let startY = 0;
+
+                if (vWidth / vHeight > desiredAspect) {
+                    cropWidth = vHeight * desiredAspect;
+                    startX = (vWidth - cropWidth) / 2;
+                } else {
+                    cropHeight = vWidth / desiredAspect;
+                    startY = (vHeight - cropHeight) / 2;
+                }
+
+                canvas.width = 480;
+                canvas.height = 640;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                if (ctx && videoRef.current) {
+                    ctx.drawImage(videoRef.current, startX, startY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    setCapturedImage(dataUrl);
+                }
                 setCapturedDescriptor(Array.from(detection.descriptor));
             } else {
                 alert('No se detectó un rostro claro. Intente de nuevo.');
@@ -283,6 +313,7 @@ const IntegrantesPage = () => {
         setEditingIntegrante(null);
         setFormData({ dni: '', nombres: '', apellidos: '', id_asociacion: '', tiene_foto: false, face_descriptor: null });
         setCapturedDescriptor(null);
+        setCapturedImage(null);
         setIsModalOpen(true);
     };
 
@@ -298,19 +329,25 @@ const IntegrantesPage = () => {
             face_descriptor: inte.face_descriptor || null
         });
         setCapturedDescriptor(null);
+        setCapturedImage(null);
         setIsModalOpen(true);
     }, []);
 
-    const handleDelete = useCallback(async (id: number) => {
-        if (!window.confirm('¿Está seguro de que desea eliminar este integrante?')) return;
+    const handleDelete = useCallback(async (inte: Integrante) => {
+        setDeleteConfirm(inte);
+    }, []);
+
+    const confirmDelete = async () => {
+        if (!deleteConfirm) return;
         try {
-            await eliminarIntegrante(id);
+            await eliminarIntegrante(deleteConfirm.id);
+            setDeleteConfirm(null);
             fetchData();
         } catch (error: unknown) {
             console.error('Error deleting integrante:', error);
             alert('Error al eliminar el integrante.');
         }
-    }, [fetchData]);
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -320,22 +357,18 @@ const IntegrantesPage = () => {
         try {
             if (editingIntegrante) {
                 await actualizarIntegrante(editingIntegrante.id, {
+                    dni: formData.dni,
                     nombres: formData.nombres,
                     apellidos: formData.apellidos,
                     id_asociacion: parseInt(formData.id_asociacion),
                     face_descriptor: capturedDescriptor || undefined,
                     tiene_foto: capturedDescriptor ? true : formData.tiene_foto
                 });
-                if (videoRef.current && capturedDescriptor) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 480;
-                    canvas.height = 640;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx && videoRef.current) {
-                        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-                        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-                        if (blob) await subirFotoIndividual(formData.dni, blob);
-                    }
+
+                if (capturedImage && capturedDescriptor) {
+                    const response = await fetch(capturedImage);
+                    const blob = await response.blob();
+                    if (blob) await subirFotoIndividual(formData.dni, blob);
                 }
             } else {
                 await crearIntegrante({
@@ -346,16 +379,11 @@ const IntegrantesPage = () => {
                     tiene_foto: !!capturedDescriptor,
                     face_descriptor: capturedDescriptor || undefined
                 });
-                if (videoRef.current && capturedDescriptor) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 480;
-                    canvas.height = 640;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx && videoRef.current) {
-                        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-                        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-                        if (blob) await subirFotoIndividual(formData.dni, blob);
-                    }
+
+                if (capturedImage && capturedDescriptor) {
+                    const response = await fetch(capturedImage);
+                    const blob = await response.blob();
+                    if (blob) await subirFotoIndividual(formData.dni, blob);
                 }
             }
             setIsModalOpen(false);
@@ -504,8 +532,17 @@ const IntegrantesPage = () => {
                                         <p className="text-sm">Iniciando IA...</p>
                                     </div>
                                 )}
-                                <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-                                <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" />
+                                {capturedImage && (
+                                    <img src={capturedImage} className="w-full h-full object-cover absolute inset-0 z-10" alt="Captura" />
+                                )}
+                                <video
+                                    ref={videoRef}
+                                    autoPlay
+                                    muted
+                                    playsInline
+                                    className={`w-full h-full object-cover ${capturedImage ? 'hidden' : ''}`}
+                                />
+                                <canvas ref={canvasRef} className={`absolute top-0 left-0 w-full h-full pointer-events-none z-20 ${capturedImage ? 'hidden' : ''}`} />
 
                                 <div className="absolute inset-0 border-[20px] border-emerald-500/10 pointer-events-none flex items-center justify-center">
                                     <div className="w-48 h-64 border-2 border-dashed border-white/40 rounded-[3rem]"></div>
@@ -519,10 +556,10 @@ const IntegrantesPage = () => {
                                 )}
 
                                 {capturedDescriptor && (
-                                    <div className="absolute inset-0 bg-emerald-500/20 border-4 border-emerald-500 flex items-center justify-center">
-                                        <div className="bg-emerald-500 text-white px-4 py-2 rounded-full font-bold flex items-center space-x-2">
-                                            <CheckCircle size={20} />
-                                            <span>¡Rostro Capturado!</span>
+                                    <div className="absolute inset-x-0 bottom-0 top-auto h-auto bg-gradient-to-t from-emerald-600/90 via-emerald-600/40 to-transparent p-6 flex items-center justify-center animate-in slide-in-from-bottom duration-300">
+                                        <div className="bg-white/90 backdrop-blur text-emerald-600 px-5 py-2.5 rounded-full font-black flex items-center space-x-2 shadow-xl scale-110">
+                                            <CheckCircle size={22} />
+                                            <span className="text-xs uppercase tracking-widest">¡Rostro Capturado!</span>
                                         </div>
                                     </div>
                                 )}
@@ -539,7 +576,10 @@ const IntegrantesPage = () => {
                             {capturedDescriptor ? (
                                 <button
                                     type="button"
-                                    onClick={() => setCapturedDescriptor(null)}
+                                    onClick={() => {
+                                        setCapturedDescriptor(null);
+                                        setCapturedImage(null);
+                                    }}
                                     className="w-full py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium flex items-center justify-center space-x-2"
                                 >
                                     <RefreshCw size={18} />
@@ -571,11 +611,13 @@ const IntegrantesPage = () => {
                                     <input
                                         type="text"
                                         value={formData.dni}
-                                        onChange={(e) => setFormData({ ...formData, dni: e.target.value })}
-                                        className={`w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none ${editMode ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : ''}`}
-                                        placeholder="Ingrese el DNI"
+                                        onChange={(e) => {
+                                            const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+                                            setFormData({ ...formData, dni: val });
+                                        }}
+                                        className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none"
+                                        placeholder="Ingrese el DNI (solo números)"
                                         required
-                                        disabled={editMode}
                                     />
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -584,7 +626,7 @@ const IntegrantesPage = () => {
                                         <input
                                             type="text"
                                             value={formData.apellidos}
-                                            onChange={(e) => setFormData({ ...formData, apellidos: e.target.value })}
+                                            onChange={(e) => setFormData({ ...formData, apellidos: e.target.value.toUpperCase() })}
                                             className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none"
                                             placeholder="Apellidos"
                                             required
@@ -595,7 +637,7 @@ const IntegrantesPage = () => {
                                         <input
                                             type="text"
                                             value={formData.nombres}
-                                            onChange={(e) => setFormData({ ...formData, nombres: e.target.value })}
+                                            onChange={(e) => setFormData({ ...formData, nombres: e.target.value.toUpperCase() })}
                                             className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none"
                                             placeholder="Nombres"
                                             required
@@ -639,6 +681,37 @@ const IntegrantesPage = () => {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN PREMIUM */}
+            {deleteConfirm && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
+                        <div className="p-8 text-center">
+                            <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm border border-rose-100">
+                                <AlertTriangle size={40} />
+                            </div>
+                            <h3 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight">¿Estás seguro?</h3>
+                            <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                                Estas a punto de eliminar a <span className="font-bold text-slate-700">{deleteConfirm.apellidos}, {deleteConfirm.nombres}</span>. Esta acción no se puede deshacer.
+                            </p>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={() => setDeleteConfirm(null)}
+                                    className="py-3.5 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm hover:bg-slate-200 transition-all active:scale-95"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={confirmDelete}
+                                    className="py-3.5 bg-rose-600 text-white rounded-2xl font-bold text-sm hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
+                                >
+                                    Sí, Eliminar
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
