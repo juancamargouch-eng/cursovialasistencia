@@ -142,6 +142,23 @@ def eliminar_integrante(id: int, db: Session = Depends(session.get_db), current_
     db.commit()
     return {"message": "Integrante eliminado exitosamente"}
 
+@router.put("/{id}/face", response_model=schemas.IntegranteSchema)
+def actualizar_face_descriptor(
+    id: int, 
+    data: schemas.IntegranteUpdateFace, 
+    db: Session = Depends(session.get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    db_integrante = db.query(models.Integrante).filter(models.Integrante.id == id).first()
+    if not db_integrante:
+        raise HTTPException(status_code=404, detail="Integrante no encontrado")
+    
+    db_integrante.face_descriptor = data.face_descriptor
+    db_integrante.tiene_foto = True
+    db.commit()
+    db.refresh(db_integrante)
+    return db_integrante
+
 @router.post("/bulk-upload/", tags=["Mantenimiento"])
 async def carga_masiva(
     file: UploadFile = File(...), 

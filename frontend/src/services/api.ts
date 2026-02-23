@@ -90,7 +90,7 @@ export const getReporteAsistencia = (fecha: string, turno?: string) =>
 export const bulkUpload = (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post('/bulk-upload/', formData, {
+    return api.post('/integrantes/bulk-upload/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     });
 };
@@ -98,7 +98,7 @@ export const bulkUpload = (file: File) => {
 export const bulkPhotosUpload = (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post('/bulk-photos/', formData, {
+    return api.post('/integrantes/bulk-photos/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     });
 };
@@ -106,7 +106,7 @@ export const bulkPhotosUpload = (file: File) => {
 export const subirFotoIndividual = (dni: string, file: Blob) => {
     const formData = new FormData();
     formData.append('file', file, `${dni}.jpg`);
-    return api.post(`/upload-photo/${dni}`, formData, {
+    return api.post(`/integrantes/upload-photo/${dni}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     });
 };
